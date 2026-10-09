@@ -283,9 +283,16 @@ footer{text-align:center;font-size:14px;color:var(--muted);padding:20px}
     <div class="toolbar" style="margin-top:10px"><span class="small">Stretched word speed:</span>
       <div class="seg" id="sRate"><button data-v="0.2">Very slow</button><button data-v="0.3" class="on">Slow</button><button data-v="0.45">Medium</button></div>
       <button class="btn ghost" id="sTest">🔊 Test with "cat"</button></div>
+    <p class="small">Voice used on this device: <b id="voiceName">checking…</b></p>
     <div class="toolbar"><span class="small">Single sound volume:</span>
       <div class="seg" id="sVol"><button data-v="0.3">Quieter</button><button data-v="0.5" class="on">Medium</button><button data-v="0.8">Louder</button></div>
       <button class="btn ghost" id="vTest">🔊 Test with /k/ /æ/ /t/</button></div>
+  </div>
+  <div class="panel">
+    <h3>Recording helper (for the talking base)</h3>
+    <p class="small">This plays every stretched word and whole word in a fixed order, with a pause between each, so you can record the computer voice in one go with a sound recorder such as Audacity. Each sound is numbered on screen in the same order as the list below.</p>
+    <div class="toolbar"><button class="btn" id="recStart">⏺ Play all 42 for recording</button><button class="btn ghost" id="recStop">Stop</button><span id="recNow" style="font-weight:700;font-size:20px"></span></div>
+    <details><summary class="small" style="cursor:pointer">Show the order and file names</summary><div class="filegrid" id="recList"></div></details>
   </div>
   <div class="panel">
     <h3>Audio files</h3>
@@ -417,8 +424,16 @@ const fileStatus={};
 let currentAudio=null;
 let ttsOn=true;
 let voice=null;
-function pickVoice(){if(!('speechSynthesis' in window))return;const vs=speechSynthesis.getVoices();voice=vs.find(v=>/en[-_]GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
+// Prefer a female British voice. Devices name their voices differently, so we match common female voice names.
+const FEMALE=/female|woman|hazel|susan|libby|sonia|maisie|mia|serena|kate|martha|stephanie|fiona|moira|karen|tessa|samantha|victoria|zira|aria|jenny|emma|amy|olivia|natasha|clara/i;
+const MALE=/\bmale\b|george|ryan|thomas|daniel|arthur|oliver|james|david|mark|guy|alfie|elliot|noah/i;
+function pickVoice(){if(!('speechSynthesis' in window))return;const vs=speechSynthesis.getVoices();
+  const gb=vs.filter(v=>/en[-_]GB/i.test(v.lang)),en=vs.filter(v=>/^en/i.test(v.lang));
+  const fem=list=>list.find(v=>FEMALE.test(v.name)&&!/\bmale\b/i.test(v.name.replace(/female/i,'')))||list.find(v=>!MALE.test(v.name));
+  voice=fem(gb)||fem(en)||gb[0]||en[0]||null;
+  const el=document.getElementById('voiceName');if(el)el.textContent=voice?voice.name+' ('+voice.lang+')':'No English voice found on this device';}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+window.addEventListener('load',pickVoice);
 function stopAudio(){if(currentAudio){try{currentAudio.pause();}catch(e){}currentAudio=null;}if('speechSynthesis' in window)speechSynthesis.cancel();}
 function playFile(name){
   if(fileStatus[name]==='missing')return Promise.resolve(false);
@@ -743,6 +758,15 @@ updateChantUI();
 $('#ttsOn').addEventListener('change',e=>{ttsOn=e.target.checked;});
 seg('sRate',v=>{stretchRate=+v;});
 seg('sVol',v=>{soundVol=+v;});
+// Recording helper: fixed order, 2-second gaps so Audacity can split by silence
+const REC_ORDER=WORDS.flatMap(x=>[['stretch',x.w],['word',x.w]]);
+$('#recList').innerHTML=REC_ORDER.map(([t,w],i)=>`<div>${String(i+1).padStart(3,'0')} → ${t}-${w}.mp3</div>`).join('');
+let recRun=0;
+$('#recStart').addEventListener('click',async()=>{stopAudio();const r=++recRun;$('#recNow').textContent='Starting in 3 seconds…';await wait(3000);
+  for(let i=0;i<REC_ORDER.length;i++){if(r!==recRun)return;const [t,w]=REC_ORDER[i];$('#recNow').textContent=`${String(i+1).padStart(3,'0')}: ${t}-${w}`;
+    await speak(w,t==='stretch'?stretchRate:0.85);await wait(2000);}
+  if(r===recRun)$('#recNow').textContent='Finished. Stop your recording.';});
+$('#recStop').addEventListener('click',()=>{recRun++;stopAudio();$('#recNow').textContent='Stopped.';});
 $('#vTest').addEventListener('click',async()=>{stopAudio();for(const g of ['c','a','t']){await sayPhoneme(g);await wait(250);}});
 $('#sTest').addEventListener('click',()=>{stopAudio();fileStatus['stretch-cat']==='ok'?playFile('stretch-cat'):speak('cat',stretchRate);});
 $('#aCheck').addEventListener('click',async()=>{
